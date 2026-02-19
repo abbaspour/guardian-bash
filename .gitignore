@@ -1,0 +1,7 @@
+.terraform*
+terraform.tfstate*
+terraform.auto.tfvars
+*.plan
+.env
+*.json
+*.pem

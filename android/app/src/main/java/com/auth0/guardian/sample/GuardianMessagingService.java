@@ -23,8 +23,8 @@ public class GuardianMessagingService extends FirebaseMessagingService {
         Map<String, String> data = remoteMessage.getData();
         if (!data.isEmpty()) {
             // Log specific Guardian fields
-            if (data.containsKey("challenge")) {
-                Log.d(TAG, "challenge: " + data.get("challenge"));
+            if (data.containsKey("c")) {
+                Log.d(TAG, "challenge: " + data.get("c"));
             }
             if (data.containsKey("txtkn")) {
                 Log.d(TAG, "txtkn: " + data.get("txtkn"));

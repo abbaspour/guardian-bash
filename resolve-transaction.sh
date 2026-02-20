@@ -16,6 +16,17 @@ set -e
 CLIENT_NAME="Guardian.Shell"
 CLIENT_VERSION="1.0.0"
 
+# Load .env file if it exists
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    set -a
+    source "${SCRIPT_DIR}/.env"
+    set +a
+fi
+
+# Default key file
+DEFAULT_PRIVATE_KEY="${SCRIPT_DIR}/private.pem"
+
 # Usage function
 usage() {
     cat << EOF
@@ -24,8 +35,9 @@ Usage: $0 -c CHALLENGE -d DOMAIN -i DEVICE_ID -k KEY_PATH -t TXTKN [-R REASON] [
 Required arguments:
   -c CHALLENGE      Challenge value from push notification (sets JWT 'sub' claim)
   -d DOMAIN         Base domain/URL (e.g., 'tenant.auth0.com' or 'tenant.guardian.auth0.com')
+                    Can be set in .env as AUTH0_DOMAIN
   -i DEVICE_ID      Device identifier (sets JWT 'iss' claim)
-  -k KEY_PATH       Path to RSA private key PEM file
+  -k KEY_PATH       Path to RSA private key PEM file (default: ./private.pem)
   -t TXTKN          Transaction token from push notification
 
 Optional arguments:
@@ -64,8 +76,18 @@ while getopts "c:d:i:k:t:R:a:h" opt; do
     esac
 done
 
+# Use AUTH0_DOMAIN from .env if DOMAIN not provided via command line
+if [[ -z "$DOMAIN" ]] && [[ -n "$AUTH0_DOMAIN" ]]; then
+    DOMAIN="$AUTH0_DOMAIN"
+fi
+
+# Use default private key if not provided
+if [[ -z "$KEY_PATH" ]]; then
+    KEY_PATH="$DEFAULT_PRIVATE_KEY"
+fi
+
 # Validate required parameters
-if [[ -z "$CHALLENGE" ]] || [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]] || [[ -z "$KEY_PATH" ]] || [[ -z "$TXTKN" ]]; then
+if [[ -z "$CHALLENGE" ]] || [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]] || [[ -z "$TXTKN" ]]; then
     echo "Error: Missing required arguments" >&2
     usage
 fi

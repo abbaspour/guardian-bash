@@ -17,6 +17,13 @@ CLIENT_VERSION="1.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENROLLMENTS_DIR="${SCRIPT_DIR}/.enrollments"
 
+# Load .env file if it exists
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    set -a
+    source "${SCRIPT_DIR}/.env"
+    set +a
+fi
+
 # Usage function
 usage() {
     cat << EOF
@@ -66,6 +73,11 @@ while getopts "d:i:a:h" opt; do
         \?) echo "Error: Invalid option -$OPTARG" >&2; usage ;;
     esac
 done
+
+# Use AUTH0_DOMAIN from .env if DOMAIN not provided via command line
+if [[ -z "$DOMAIN" ]] && [[ -n "$AUTH0_DOMAIN" ]]; then
+    DOMAIN="$AUTH0_DOMAIN"
+fi
 
 # Validate required parameters
 if [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]]; then

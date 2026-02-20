@@ -8,6 +8,8 @@ list-devices:
 boot:
 	${ANDROID_HOME}/emulator/emulator -avd $(DEVICE) -dns-server 8.8.8.8 &
 
+deploy: install
+
 install:
 	./gradlew installDebug
 

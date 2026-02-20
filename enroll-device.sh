@@ -18,6 +18,16 @@ CLIENT_VERSION="1.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENROLLMENTS_DIR="${SCRIPT_DIR}/.enrollments"
 
+# Load .env file if it exists
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    set -a
+    source "${SCRIPT_DIR}/.env"
+    set +a
+fi
+
+# Default key file
+DEFAULT_PUBLIC_KEY="${SCRIPT_DIR}/public.pem"
+
 # Usage function
 usage() {
     cat << EOF
@@ -29,10 +39,11 @@ DESCRIPTION:
 Required arguments:
   -t TICKET         Enrollment ticket from Auth0 (enrollment_tx_id from QR code)
   -d DOMAIN         Base domain/URL (e.g., 'tenant.auth0.com' or 'tenant.guardian.auth0.com')
+                    Can be set in .env as AUTH0_DOMAIN
   -i DEVICE_ID      Device identifier (unique ID for this device)
   -n NAME           Device name (human-readable name shown in Auth0 dashboard)
   -g FCM_TOKEN      Firebase Cloud Messaging token from Android/iOS app
-  -f PUBLIC_KEY_PEM Path to RSA public key PEM file (generated with openssl genrsa + rsa -pubout)
+  -f PUBLIC_KEY_PEM Path to RSA public key PEM file (default: ./public.pem)
 
 Optional arguments:
   -a AUTH0_CLIENT   Custom Auth0-Client header value (base64url-encoded JSON)
@@ -86,8 +97,18 @@ while getopts "t:d:i:n:g:f:a:h" opt; do
     esac
 done
 
+# Use AUTH0_DOMAIN from .env if DOMAIN not provided via command line
+if [[ -z "$DOMAIN" ]] && [[ -n "$AUTH0_DOMAIN" ]]; then
+    DOMAIN="$AUTH0_DOMAIN"
+fi
+
+# Use default public key if not provided
+if [[ -z "$PUBLIC_KEY_PEM" ]]; then
+    PUBLIC_KEY_PEM="$DEFAULT_PUBLIC_KEY"
+fi
+
 # Validate required parameters
-if [[ -z "$TICKET" ]] || [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]] || [[ -z "$DEVICE_NAME" ]] || [[ -z "$FCM_TOKEN" ]] || [[ -z "$PUBLIC_KEY_PEM" ]]; then
+if [[ -z "$TICKET" ]] || [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]] || [[ -z "$DEVICE_NAME" ]] || [[ -z "$FCM_TOKEN" ]]; then
     echo "Error: Missing required arguments" >&2
     usage
 fi

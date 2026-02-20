@@ -366,3 +366,6 @@ There is a minimal Android app in `android/` folder that receives push notificat
    ```shell
    ./resolve-transaction.sh -c <challenge> -t <token> ... 
    ```
+   
+# Demo Video
+[![Demo](./img/demo.png)](https://zoom.us/clips/share/-pcOp_IQTyCwCLCw9kaDoA)

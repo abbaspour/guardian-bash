@@ -7,7 +7,7 @@
 ##########################################################################################
 
 # Guardian Device Enrollment
-# Enrolls or unenrolls devices to Auth0 Guardian MFA service
+# Enrolls devices to Auth0 Guardian MFA service
 # Supports FCM (Firebase Cloud Messaging) push notifications
 
 set -e
@@ -22,10 +22,9 @@ ENROLLMENTS_DIR="${SCRIPT_DIR}/.enrollments"
 usage() {
     cat << EOF
 Usage: $0 -t TICKET -d DOMAIN -i DEVICE_ID -n NAME -g FCM_TOKEN -f PUBLIC_KEY_PEM [-a AUTH0_CLIENT]
-       $0 -U -d DOMAIN -i DEVICE_ID [-a AUTH0_CLIENT]
 
-ENROLLMENT MODE (default):
-  Enrolls a new device with Auth0 Guardian using an enrollment ticket.
+DESCRIPTION:
+  Enrolls a new device with Auth0 Guardian MFA service using an enrollment ticket.
 
 Required arguments:
   -t TICKET         Enrollment ticket from Auth0 (enrollment_tx_id from QR code)
@@ -40,21 +39,11 @@ Optional arguments:
                     Default: {"name":"Guardian.Shell","version":"1.0.0"}
   -h                Show this help message
 
-UNENROLLMENT MODE:
-  Removes a previously enrolled device from Auth0 Guardian.
-
-Required arguments:
-  -U                Enable unenrollment mode
-  -d DOMAIN         Base domain/URL (same as used during enrollment)
-  -i DEVICE_ID      Device identifier (same as used during enrollment)
-
-Optional arguments:
-  -a AUTH0_CLIENT   Custom Auth0-Client header value (base64url-encoded JSON)
-  -h                Show this help message
-
 EXAMPLES:
 
   # Generate RSA keypair (2048-bit recommended)
+  make keypair
+  # OR
   openssl genrsa -out private.pem 2048
   openssl rsa -in private.pem -pubout -out public.pem
 
@@ -74,21 +63,16 @@ EXAMPLES:
      -g "fcm_token_xyz789" \\
      -f public.pem
 
-  # Unenroll a device
-  $0 -U -d "tenant.auth0.com" -i "device-001"
-
 ENROLLMENT DATA STORAGE:
   Enrollment data is saved to: .enrollments/{device_id}.json
-  This file contains enrollment_id and device_token needed for unenrollment.
+  This file is used by unenroll-device.sh for device unenrollment.
 
 EOF
     exit 1
 }
 
 # Parse command line arguments
-UNENROLL_MODE=false
-
-while getopts "t:d:i:n:g:f:a:Uh" opt; do
+while getopts "t:d:i:n:g:f:a:h" opt; do
     case $opt in
         t) TICKET="$OPTARG" ;;
         d) DOMAIN="$OPTARG" ;;
@@ -97,46 +81,27 @@ while getopts "t:d:i:n:g:f:a:Uh" opt; do
         g) FCM_TOKEN="$OPTARG" ;;
         f) PUBLIC_KEY_PEM="$OPTARG" ;;
         a) AUTH0_CLIENT="$OPTARG" ;;
-        U) UNENROLL_MODE=true ;;
         h) usage ;;
         \?) echo "Error: Invalid option -$OPTARG" >&2; usage ;;
     esac
 done
 
-# Validate common required parameters
-if [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]]; then
-    echo "Error: Missing required arguments (DOMAIN and DEVICE_ID are always required)" >&2
+# Validate required parameters
+if [[ -z "$TICKET" ]] || [[ -z "$DOMAIN" ]] || [[ -z "$DEVICE_ID" ]] || [[ -z "$DEVICE_NAME" ]] || [[ -z "$FCM_TOKEN" ]] || [[ -z "$PUBLIC_KEY_PEM" ]]; then
+    echo "Error: Missing required arguments" >&2
     usage
 fi
 
-# Mode-specific validation
-if [[ "$UNENROLL_MODE" == "false" ]]; then
-    # Enrollment mode - validate enrollment-specific parameters
-    if [[ -z "$TICKET" ]] || [[ -z "$DEVICE_NAME" ]] || [[ -z "$FCM_TOKEN" ]] || [[ -z "$PUBLIC_KEY_PEM" ]]; then
-        echo "Error: Missing required arguments for enrollment mode" >&2
-        usage
-    fi
+# Check if public key file exists
+if [[ ! -f "$PUBLIC_KEY_PEM" ]]; then
+    echo "Error: Public key file not found: $PUBLIC_KEY_PEM" >&2
+    exit 1
+fi
 
-    # Check if public key file exists
-    if [[ ! -f "$PUBLIC_KEY_PEM" ]]; then
-        echo "Error: Public key file not found: $PUBLIC_KEY_PEM" >&2
-        exit 1
-    fi
-
-    # Verify it's a valid PEM file
-    if ! openssl rsa -pubin -in "$PUBLIC_KEY_PEM" -noout 2>/dev/null; then
-        echo "Error: Invalid RSA public key PEM file: $PUBLIC_KEY_PEM" >&2
-        exit 1
-    fi
-else
-    # Unenrollment mode - check if enrollment data exists
-    ENROLLMENT_FILE="${ENROLLMENTS_DIR}/${DEVICE_ID}.json"
-    if [[ ! -f "$ENROLLMENT_FILE" ]]; then
-        echo "Error: Enrollment data not found for device: $DEVICE_ID" >&2
-        echo "Expected file: $ENROLLMENT_FILE" >&2
-        echo "This device may not be enrolled or the enrollment data was removed." >&2
-        exit 1
-    fi
+# Verify it's a valid PEM file
+if ! openssl rsa -pubin -in "$PUBLIC_KEY_PEM" -noout 2>/dev/null; then
+    echo "Error: Invalid RSA public key PEM file: $PUBLIC_KEY_PEM" >&2
+    exit 1
 fi
 
 # Function to perform base64url encoding (URL-safe, no padding)
@@ -290,7 +255,6 @@ save_enrollment_data() {
 # Function to perform device enrollment
 enroll_device() {
     echo "=== Guardian Device Enrollment ===" >&2
-    echo "Mode: ENROLLMENT" >&2
     echo "Domain: $DOMAIN" >&2
     echo "Device ID: $DEVICE_ID" >&2
     echo "Device Name: $DEVICE_NAME" >&2
@@ -388,94 +352,5 @@ enroll_device() {
     fi
 }
 
-# Function to perform device unenrollment
-unenroll_device() {
-    echo "=== Guardian Device Unenrollment ===" >&2
-    echo "Mode: UNENROLLMENT" >&2
-    echo "Domain: $DOMAIN" >&2
-    echo "Device ID: $DEVICE_ID" >&2
-    echo "" >&2
-
-    # Read enrollment data
-    local enrollment_file="${ENROLLMENTS_DIR}/${DEVICE_ID}.json"
-    local enrollment_data=$(cat "$enrollment_file")
-
-    local enrollment_id=$(echo "$enrollment_data" | jq -r '.enrollment_id')
-    local device_token=$(echo "$enrollment_data" | jq -r '.device_token')
-
-    echo "Enrollment ID: $enrollment_id" >&2
-    echo "Device Token: ${device_token:0:20}..." >&2
-    echo "" >&2
-
-    # Build unenrollment URL
-    local url=$(build_url "$DOMAIN" "/api/device-accounts/${enrollment_id}")
-    echo "URL: $url" >&2
-    echo "" >&2
-
-    # Generate Auth0-Client header if not provided
-    if [[ -z "$AUTH0_CLIENT" ]]; then
-        AUTH0_CLIENT=$(echo -n "{\"name\":\"$CLIENT_NAME\",\"version\":\"$CLIENT_VERSION\"}" | base64url_encode)
-    fi
-
-    # Send unenrollment request
-    echo "Sending unenrollment request..." >&2
-    echo "" >&2
-
-    local response_file="/tmp/guardian_unenroll_response_$$.txt"
-    local http_code=$(curl -s -w "%{http_code}" -o "$response_file" \
-        -X DELETE "$url" \
-        -H "Authorization: Bearer $device_token" \
-        -H "Auth0-Client: $AUTH0_CLIENT")
-
-    # Print response
-    echo "=== Response ===" >&2
-    echo "HTTP Status Code: $http_code" >&2
-
-    if [[ -s "$response_file" ]]; then
-        local response_body=$(cat "$response_file")
-        echo "Response Body:" >&2
-        echo "$response_body" | jq '.' >&2 2>/dev/null || echo "$response_body" >&2
-        echo "" >&2
-    fi
-
-    # Handle response
-    if [[ "$http_code" == "204" ]] || [[ "$http_code" == "200" ]]; then
-        echo "✓ Device unenrolled successfully" >&2
-
-        # Remove enrollment data file
-        rm -f "$enrollment_file"
-        echo "Removed enrollment data file: $enrollment_file" >&2
-        echo "" >&2
-
-        # Clean up
-        rm -f "$response_file"
-        exit 0
-    elif [[ "$http_code" == "404" ]]; then
-        # Device not found - treat as success (idempotent)
-        echo "✓ Device already unenrolled (not found on server)" >&2
-
-        # Remove enrollment data file anyway
-        rm -f "$enrollment_file"
-        echo "Removed enrollment data file: $enrollment_file" >&2
-        echo "" >&2
-
-        # Clean up
-        rm -f "$response_file"
-        exit 0
-    elif [[ "$http_code" == "401" ]]; then
-        echo "✗ Unenrollment failed: Unauthorized (invalid device token)" >&2
-        rm -f "$response_file"
-        exit 1
-    else
-        echo "✗ Unenrollment failed with HTTP $http_code" >&2
-        rm -f "$response_file"
-        exit 1
-    fi
-}
-
 # Main execution
-if [[ "$UNENROLL_MODE" == "true" ]]; then
-    unenroll_device
-else
-    enroll_device
-fi
+enroll_device

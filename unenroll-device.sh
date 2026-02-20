@@ -36,7 +36,9 @@ DESCRIPTION:
 Required arguments:
   -d DOMAIN         Base domain/URL (same as used during enrollment)
                     Examples: 'tenant.auth0.com' or 'tenant.guardian.auth0.com'
+                    Can be set in .env as AUTH0_DOMAIN
   -i DEVICE_ID      Device identifier (same as used during enrollment)
+                    Auto-detected if only one device enrolled in .enrollments/
 
 Optional arguments:
   -a AUTH0_CLIENT   Custom Auth0-Client header value (base64url-encoded JSON)
@@ -77,6 +79,16 @@ done
 # Use AUTH0_DOMAIN from .env if DOMAIN not provided via command line
 if [[ -z "$DOMAIN" ]] && [[ -n "$AUTH0_DOMAIN" ]]; then
     DOMAIN="$AUTH0_DOMAIN"
+fi
+
+# Auto-detect device ID if not provided and only one device is enrolled
+if [[ -z "$DEVICE_ID" ]] && [[ -d "$ENROLLMENTS_DIR" ]]; then
+    enrollment_files=("$ENROLLMENTS_DIR"/*.json)
+    if [[ ${#enrollment_files[@]} -eq 1 ]] && [[ -f "${enrollment_files[0]}" ]]; then
+        # Extract device_id from filename (format: {device_id}.json)
+        DEVICE_ID=$(basename "${enrollment_files[0]}" .json)
+        echo "Auto-detected device ID: $DEVICE_ID" >&2
+    fi
 fi
 
 # Validate required parameters

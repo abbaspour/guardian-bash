@@ -6,10 +6,6 @@ This project is a set of bash scripts that interact with Auth0 Guardian API.
 - Receives push notifications from Guardian
 - Resolves (accept/reject) transaction from Guardian
 
-# Boostrap
-
-`tf/` folder contains Terraform scripts to deploy AWS SNS and Auth0 resources.
-
 # Guardian API Summary
 
 ## Summary Table
@@ -35,7 +31,7 @@ This project is a set of bash scripts that interact with Auth0 Guardian API.
 Headers:
 ```
 Authorization: Ticket id="<enrollment_ticket>"
-Auth0-Client: eyJuYW1lIjoiR3VhcmRpYW4uU2hlbGwiLCJ2ZXJzaW9uIjoiMS4wLjAifQ # base64 of client & version {"name":"Guardian.Shell","version":"1.0.0"}
+Auth0-Client: eyJuYW1lIjoiR3VhcmRpYW4uU2hlbGwiLCJ2ZXJzaW9uIjoiMS4wLjAifQ
 Content-Type: application/json
 ```
 
@@ -325,6 +321,10 @@ Success: HTTP 200 with rich consent data
 - DPoP proof must be signed with device's private key
 - Rich consent domain handling: Strips `.guardian` subdomain and `/appliance-mfa` prefix
 
+# Boostrap
+
+`tf/` folder contains Terraform scripts to deploy AWS SNS and Auth0 resources.
+
 # Guardian Push Notification App
 
 There is a minimal Android app in `android/` folder that receives push notifications from Guardian.
@@ -343,11 +343,18 @@ There is a minimal Android app in `android/` folder that receives push notificat
    make list-devices  # update DEVICE in Makefile to match
    make boot
    ```
+5. Run the application
+   ```shell
+   make install
+   make run
+   ```
+   ![Running Application](./img/app.png)
 5. Get your FCM token from:
     - The app UI (tap "Copy Token"), or
-    - Logcat: `adb logcat -s GuardianFCM`
+    - Logcat: `adb logcat -s GuardianFCM` OR `make log`
 6. Use the token with enrollment:
     ```shell
+   cd ..
    ./enroll-device.sh -g <fcm-token> -c <challenge> ...
    ```
 7. When Guardian sends a push, check logcat for:
@@ -355,3 +362,7 @@ There is a minimal Android app in `android/` folder that receives push notificat
    D/GuardianFCM: challenge: <value>
    D/GuardianFCM: txtkn: <value>
 
+8. Resolve MFA
+   ```shell
+   ./resolve-transaction.sh -c <challenge> -t <token> ... 
+   ```

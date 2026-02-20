@@ -26,6 +26,7 @@ fi
 
 # Default key file
 DEFAULT_PRIVATE_KEY="${SCRIPT_DIR}/private.pem"
+ENROLLMENTS_DIR="${SCRIPT_DIR}/.enrollments"
 
 # Usage function
 usage() {
@@ -37,6 +38,7 @@ Required arguments:
   -d DOMAIN         Base domain/URL (e.g., 'tenant.auth0.com' or 'tenant.guardian.auth0.com')
                     Can be set in .env as AUTH0_DOMAIN
   -i DEVICE_ID      Device identifier (sets JWT 'iss' claim)
+                    Auto-detected if only one device enrolled in .enrollments/
   -k KEY_PATH       Path to RSA private key PEM file (default: ./private.pem)
   -t TXTKN          Transaction token from push notification
 
@@ -84,6 +86,16 @@ fi
 # Use default private key if not provided
 if [[ -z "$KEY_PATH" ]]; then
     KEY_PATH="$DEFAULT_PRIVATE_KEY"
+fi
+
+# Auto-detect device ID if not provided and only one device is enrolled
+if [[ -z "$DEVICE_ID" ]] && [[ -d "$ENROLLMENTS_DIR" ]]; then
+    enrollment_files=("$ENROLLMENTS_DIR"/*.json)
+    if [[ ${#enrollment_files[@]} -eq 1 ]] && [[ -f "${enrollment_files[0]}" ]]; then
+        # Extract device_id from filename (format: {device_id}.json)
+        DEVICE_ID=$(basename "${enrollment_files[0]}" .json)
+        echo "Auto-detected device ID: $DEVICE_ID" >&2
+    fi
 fi
 
 # Validate required parameters

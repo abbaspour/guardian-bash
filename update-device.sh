@@ -43,6 +43,7 @@ DESCRIPTION:
 
 Required arguments:
   -i DEVICE_ID      Device identifier (same as used during enrollment)
+                    Auto-detected if only one device enrolled in .enrollments/
   -g GCM_TOKEN      Firebase Cloud Messaging token (required by API, use current value if unchanged)
 
 Optional update fields:
@@ -50,7 +51,7 @@ Optional update fields:
   -I IDENTIFIER     New device identifier (capital I)
 
 Optional control arguments:
-  -d DOMAIN         Override domain (defaults to value in enrollment file)
+  -d DOMAIN         Override domain (defaults to value in enrollment file or AUTH0_DOMAIN in .env)
   -a AUTH0_CLIENT   Custom Auth0-Client header value (base64url-encoded JSON)
                     Default: {"name":"Guardian.Shell","version":"1.0.0"}
   -h                Show this help message
@@ -96,6 +97,16 @@ done
 # (Note: DOMAIN can be overridden or will fall back to enrollment file value)
 if [[ -z "$DOMAIN" ]] && [[ -n "$AUTH0_DOMAIN" ]]; then
     DOMAIN="$AUTH0_DOMAIN"
+fi
+
+# Auto-detect device ID if not provided and only one device is enrolled
+if [[ -z "$DEVICE_ID" ]] && [[ -d "$ENROLLMENTS_DIR" ]]; then
+    enrollment_files=("$ENROLLMENTS_DIR"/*.json)
+    if [[ ${#enrollment_files[@]} -eq 1 ]] && [[ -f "${enrollment_files[0]}" ]]; then
+        # Extract device_id from filename (format: {device_id}.json)
+        DEVICE_ID=$(basename "${enrollment_files[0]}" .json)
+        echo "Auto-detected device ID: $DEVICE_ID" >&2
+    fi
 fi
 
 # Validate required parameters

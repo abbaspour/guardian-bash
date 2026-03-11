@@ -1,12 +1,13 @@
 DEVICE=Pixel_9a
 PACKAGE=com.auth0.guardian.sample
 ADB=${ANDROID_HOME}/platform-tools/adb
+HTTP_PROXY=http://asus.local:8118
 
 list-devices:
 	${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager  list avd
 
 boot:
-	${ANDROID_HOME}/emulator/emulator -avd $(DEVICE) -dns-server 8.8.8.8 &
+	${ANDROID_HOME}/emulator/emulator -avd $(DEVICE) -dns-server 8.8.8.8 -http-proxy ${HTTP_PROXY}  &
 
 deploy: install
 

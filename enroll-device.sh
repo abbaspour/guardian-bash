@@ -125,6 +125,10 @@ if ! openssl rsa -pubin -in "$PUBLIC_KEY_PEM" -noout 2>/dev/null; then
     exit 1
 fi
 
+##########################################################################################
+# Utility Functions
+##########################################################################################
+
 # Function to perform base64url encoding (URL-safe, no padding)
 base64url_encode() {
     openssl base64 -e -A | tr '+/' '-_' | tr -d '='
@@ -153,79 +157,6 @@ build_url() {
         # Custom domain needs /appliance-mfa prefix
         echo "https://${domain}/appliance-mfa${endpoint}"
     fi
-}
-
-# Function to extract modulus from PEM file (hex format)
-extract_modulus_from_pem() {
-    local pem_file="$1"
-
-    # Get modulus in hex format from openssl output
-    # The output looks like:
-    #   Modulus:
-    #       00:a3:df:66:...
-    #       d4:e5:f6:...
-    #   Exponent: 65537 (0x10001)
-    # Note: Leading 00 byte is ASN.1 padding and must be stripped
-
-    local modulus_hex=$(openssl rsa -pubin -in "$pem_file" -text -noout 2>/dev/null | \
-        awk '/Modulus:/,/Exponent:/ {print}' | \
-        grep -v "Modulus:" | \
-        grep -v "Exponent:" | \
-        tr -d ' :\n')
-
-    # Strip leading 00 byte if present (common in RSA modulus)
-    if [[ "$modulus_hex" =~ ^00 ]]; then
-        echo "${modulus_hex:2}"
-    else
-        echo "$modulus_hex"
-    fi
-}
-
-# Function to extract exponent from PEM file
-extract_exponent_from_pem() {
-    local pem_file="$1"
-
-    # Extract exponent value (typically 65537 = 0x10001)
-    # Output format: "Exponent: 65537 (0x10001)"
-    local exp_line=$(openssl rsa -pubin -in "$pem_file" -text -noout 2>/dev/null | grep "Exponent:")
-
-    # Extract hex value from parentheses and strip 0x prefix
-    echo "$exp_line" | sed -n 's/.*0x\([0-9a-fA-F]*\).*/\1/p'
-}
-
-# Function to convert hex string to base64url
-hex_to_base64url() {
-    local hex_string="$1"
-
-    # Pad hex string to even length if necessary (xxd requires even-length hex)
-    if (( ${#hex_string} % 2 != 0 )); then
-        hex_string="0${hex_string}"
-    fi
-
-    # Convert hex to binary, then to base64url
-    echo -n "$hex_string" | xxd -r -p | base64url_encode
-}
-
-# Function to build public key JWK from PEM file
-build_public_key_jwk() {
-    local pem_file="$1"
-
-    # Extract modulus and exponent
-    local modulus_hex=$(extract_modulus_from_pem "$pem_file")
-    local exponent_hex=$(extract_exponent_from_pem "$pem_file")
-
-    # Convert to base64url
-    local n=$(hex_to_base64url "$modulus_hex")
-    local e=$(hex_to_base64url "$exponent_hex")
-
-    # Build JWK JSON object
-    jq -n \
-        --arg kty "RSA" \
-        --arg alg "RS256" \
-        --arg use "sig" \
-        --arg e "$e" \
-        --arg n "$n" \
-        '{kty: $kty, alg: $alg, use: $use, e: $e, n: $n}'
 }
 
 # Function to save enrollment data
@@ -289,7 +220,11 @@ enroll_device() {
 
     # Convert PEM to JWK
     echo "Converting public key to JWK format..." >&2
-    local public_key_jwk=$(build_public_key_jwk "$PUBLIC_KEY_PEM")
+    local public_key_jwk=$("${SCRIPT_DIR}/pem-to-jwk.sh" "$PUBLIC_KEY_PEM")
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to convert PEM to JWK" >&2
+        exit 1
+    fi
 
     # Build push credentials object
     local push_credentials=$(jq -n \

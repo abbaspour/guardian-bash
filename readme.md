@@ -321,6 +321,48 @@ Success: HTTP 200 with rich consent data
 - DPoP proof must be signed with device's private key
 - Rich consent domain handling: Strips `.guardian` subdomain and `/appliance-mfa` prefix
 
+# Utility Scripts
+
+## pem-to-jwk.sh
+
+Standalone utility to convert RSA PEM files (public or private keys) to JWK (JSON Web Key) format. This utility is used internally by `enroll-device.sh` and `rich-consents.sh` for Guardian enrollment.
+
+**Usage:**
+```bash
+./pem-to-jwk.sh <pem-file>       # Convert from file
+./pem-to-jwk.sh -                # Read from stdin
+cat public.pem | ./pem-to-jwk.sh # Pipe from stdin
+```
+
+**Examples:**
+```bash
+# Convert public key to JWK
+./pem-to-jwk.sh public.pem
+
+# Extract modulus (n) and exponent (e)
+./pem-to-jwk.sh public.pem | jq '.n'
+./pem-to-jwk.sh public.pem | jq -r '.n, .e'
+
+# Use in pipeline
+cat public.pem | ./pem-to-jwk.sh | jq '.'
+```
+
+**Output:**
+```json
+{
+  "kty": "RSA",
+  "alg": "RS256",
+  "use": "sig",
+  "e": "AQAB",
+  "n": "o99mR0tHeOBdbT9..."
+}
+```
+
+**Requirements:**
+- `openssl` - RSA key operations
+- `jq` - JSON generation
+- `xxd` - Hex-to-binary conversion
+
 # Boostrap
 
 `tf/` folder contains Terraform scripts to deploy AWS SNS and Auth0 resources.
@@ -355,7 +397,7 @@ There is a minimal Android app in `android/` folder that receives push notificat
 6. Use the token with enrollment:
     ```shell
    cd ..
-   ./enroll-device.sh -g <fcm-token> -c <challenge> ...
+   ./enroll-device.sh -d domain -i bash01 -n bash01 -g <fcm-token> -t <enrollment_tx_id> 
    ```
 7. When Guardian sends a push, check logcat for:
    D/GuardianFCM: === GUARDIAN PUSH NOTIFICATION ===
@@ -364,8 +406,17 @@ There is a minimal Android app in `android/` folder that receives push notificat
 
 8. Resolve MFA
    ```shell
-   ./resolve-transaction.sh -c <challenge> -t <token> ... 
+   ./resolve-transaction.sh -c <challenge> -t <token> ...
    ```
-   
+
+9. Fetch Rich Consent Data (for transactions with detailed context)
+   ```shell
+   # If the push notification includes a consent_id for rich authorization details:
+   ./rich-consents.sh -c <consent_id> -t <txtkn> -d <domain> -i <device_id>
+
+   # Extract specific fields using jq:
+   ./rich-consents.sh -c <consent_id> -t <txtkn> -d <domain> -i <device_id> | jq '.requested_details'
+   ```
+
 # Demo Video
 [![Demo](./img/demo.png)](https://zoom.us/clips/share/-pcOp_IQTyCwCLCw9kaDoA)

@@ -371,52 +371,54 @@ cat public.pem | ./pem-to-jwk.sh | jq '.'
 
 There is a minimal Android app in `android/` folder that receives push notifications from Guardian.
 
-1. Copy your google-services.json to android/app/
-2. Open in Android Studio or build from command line:
+1. Go to your Android project in https://console.firebase.google.com/
+2. Install Firebase Admin SDK service account
+3. Download `google-services.json` from Project > Settings > General > Your apps to android/app/ folder 
+4. Open in Android Studio or build from command line:
     ```shell
    cd android
    gradle wrapper   # generates gradle-wrapper.jar
    ./gradlew assembleDebug
    ```
-3. Install Android SDK command-line tools. Go to Android Studio > Tools > SDK Tools and select command-line tools.
+5. Install Android SDK command-line tools. Go to Android Studio > Tools > SDK Tools and select command-line tools.
    ![Android Studio CLI Installation](./img/android-studio-cli.png)
-4. Install on the device and launch the app.
+6. Install on the device and launch the app.
    ```shell
    make list-devices  # update DEVICE in Makefile to match
    make boot
    ```
-5. Run the application
+7. Run the application
    ```shell
    make install
    make run
    ```
    ![Running Application](./img/app.png)
-5. Get your FCM token from:
+8. Get your FCM token from:
     - The app UI (tap "Copy Token"), or
     - Logcat: `adb logcat -s GuardianFCM` OR `make log`
-6. Use the token with enrollment:
+9. Use the token with enrollment:
     ```shell
    cd ..
    ./enroll-device.sh -d domain -i bash01 -n bash01 -g <fcm-token> -t <enrollment_tx_id> 
    ```
-7. When Guardian sends a push, check logcat for:
-   D/GuardianFCM: === GUARDIAN PUSH NOTIFICATION ===
-   D/GuardianFCM: challenge: <value>
-   D/GuardianFCM: txtkn: <value>
+10. When Guardian sends a push, check logcat for:
+    D/GuardianFCM: === GUARDIAN PUSH NOTIFICATION ===
+    D/GuardianFCM: challenge: <value>
+    D/GuardianFCM: txtkn: <value>
 
-8. Resolve MFA
-   ```shell
-   ./resolve-transaction.sh -c <challenge> -t <token> ...
-   ```
+11. Resolve MFA
+    ```shell
+    ./resolve-transaction.sh -i bash01 -c <challenge> -t <token> ...
+    ```
 
-9. Fetch Rich Consent Data (for transactions with detailed context)
-   ```shell
-   # If the push notification includes a consent_id for rich authorization details:
-   ./rich-consents.sh -c <consent_id> -t <txtkn> -d <domain> -i <device_id>
+12. Fetch Rich Consent Data (for transactions with detailed context)
+    ```shell
+    # If the push notification includes a consent_id for rich authorization details:
+    ./rich-consents.sh -c <consent_id> -t <txtkn> -d <domain> -i <device_id>
 
-   # Extract specific fields using jq:
-   ./rich-consents.sh -c <consent_id> -t <txtkn> -d <domain> -i <device_id> | jq '.requested_details'
-   ```
+    # Extract specific fields using jq:
+    ./rich-consents.sh -c <consent_id> -t <txtkn> -d <domain> -i <device_id> | jq '.requested_details'
+    ```
 
 # Demo Video
 [![Demo](./img/demo.png)](https://zoom.us/clips/share/-pcOp_IQTyCwCLCw9kaDoA)

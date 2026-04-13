@@ -45,6 +45,7 @@ Required arguments:
 Optional arguments:
   -R REASON         Reject reason. If provided, rejects the transaction (auth0_guardian_accepted=false)
                     If omitted, allows the transaction (auth0_guardian_accepted=true)
+  -s SIGNATURE      Optional consent signature (auth0_consent_signature JWT claim)
   -a AUTH0_CLIENT   Custom Auth0-Client header value (base64-encoded JSON)
                     Default: {"name":"Guardian.Shell","version":"1.0.0"}
   -h                Show this help message
@@ -64,7 +65,7 @@ EOF
 }
 
 # Parse command line arguments
-while getopts "c:d:i:k:t:R:a:h" opt; do
+while getopts "c:d:i:k:t:R:s:a:h" opt; do
     case $opt in
         c) CHALLENGE="$OPTARG" ;;
         d) DOMAIN="$OPTARG" ;;
@@ -72,6 +73,7 @@ while getopts "c:d:i:k:t:R:a:h" opt; do
         k) KEY_PATH="$OPTARG" ;;
         t) TXTKN="$OPTARG" ;;
         R) REASON="$OPTARG" ;;
+        s) CONSENT_SIG="$OPTARG" ;;
         a) AUTH0_CLIENT="$OPTARG" ;;
         h) usage ;;
         \?) echo "Invalid option -$OPTARG" >&2; usage ;;
@@ -159,7 +161,7 @@ JWT_HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64url_encode)
 # Build JWT payload
 if [[ "$ACCEPTED" == "true" ]]; then
     # Allow transaction (no reason field)
-    JWT_PAYLOAD=$(cat <<EOF | jq -c . | base64url_encode
+    JWT_PAYLOAD=$(cat <<EOF | jq -c --arg cs "${CONSENT_SIG:-}" 'if $cs != "" then . + {auth0_consent_signature: $cs} else . end' | base64url_encode
 {
   "iat": $IAT,
   "exp": $EXP,
@@ -173,7 +175,7 @@ EOF
 )
 else
     # Reject transaction (with reason)
-    JWT_PAYLOAD=$(cat <<EOF | jq -c . | base64url_encode
+    JWT_PAYLOAD=$(cat <<EOF | jq -c --arg cs "${CONSENT_SIG:-}" 'if $cs != "" then . + {auth0_consent_signature: $cs} else . end' | base64url_encode
 {
   "iat": $IAT,
   "exp": $EXP,

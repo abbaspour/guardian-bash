@@ -26,14 +26,20 @@ fi
 
 # Default key file
 DEFAULT_PRIVATE_KEY="${SCRIPT_DIR}/private.pem"
+DEFAULT_EC_PRIVATE_KEY="${SCRIPT_DIR}/ec-private.pem"
 ENROLLMENTS_DIR="${SCRIPT_DIR}/.enrollments"
 
 # Usage function
 usage() {
     cat << EOF
-Usage: $0 -c CHALLENGE -d DOMAIN -i DEVICE_ID -k KEY_PATH -t TXTKN [-R REASON] [-a AUTH0_CLIENT]
+Usage: $0 [rs256|es256] [CHALLENGE DOMAIN DEVICE_ID [TXTKN]] [OPTIONS]
 
-Required arguments:
+Positional arguments (new format, preferred):
+  [rs256|es256]     Algorithm type (default: rs256 for backward compatibility)
+                    rs256 = RSA-based RS256 JWT signing
+                    es256 = ECDSA P-256 ES256 JWT signing
+
+Flag-based arguments (legacy format):
   -c CHALLENGE      Challenge value from push notification (sets JWT 'sub' claim)
   -d DOMAIN         Base domain/URL (e.g., 'tenant.auth0.com' or 'tenant.guardian.auth0.com')
                     Can be set in .env as AUTH0_DOMAIN
@@ -50,7 +56,14 @@ Optional arguments:
                     Default: {"name":"Guardian.Shell","version":"1.0.0"}
   -h                Show this help message
 
-Examples:
+Examples (new format):
+  # Allow a transaction with RS256
+  $0 rs256 "challenge_abc" "tenant.auth0.com" "device_123"
+
+  # Allow a transaction with ES256
+  $0 es256 "challenge_abc" "tenant.auth0.com" "device_123"
+
+Examples (legacy format):
   # Allow a transaction
   $0 -c "challenge_abc" -d "tenant.auth0.com" -i "device_123" -k ./private.pem -t "txtkn_xyz"
 
@@ -64,30 +77,82 @@ EOF
     exit 1
 }
 
-# Parse command line arguments
-while getopts "c:d:i:k:t:R:s:a:h" opt; do
-    case $opt in
-        c) CHALLENGE="$OPTARG" ;;
-        d) DOMAIN="$OPTARG" ;;
-        i) DEVICE_ID="$OPTARG" ;;
-        k) KEY_PATH="$OPTARG" ;;
-        t) TXTKN="$OPTARG" ;;
-        R) REASON="$OPTARG" ;;
-        s) CONSENT_SIG="$OPTARG" ;;
-        a) AUTH0_CLIENT="$OPTARG" ;;
-        h) usage ;;
-        \?) echo "Invalid option -$OPTARG" >&2; usage ;;
-    esac
-done
+# Initialize variables
+ALGORITHM="rs256"
+CHALLENGE=""
+DOMAIN=""
+DEVICE_ID=""
+TXTKN=""
+REASON=""
+CONSENT_SIG=""
+AUTH0_CLIENT=""
+KEY_PATH=""
+
+# Parse command line arguments (both new positional and legacy flag formats)
+# Check if first argument is an algorithm specifier
+if [[ $# -gt 0 ]] && ([[ "$1" == "rs256" ]] || [[ "$1" == "es256" ]]); then
+    # New format: algorithm specified as first positional argument
+    ALGORITHM="$1"
+    shift
+
+    # Parse remaining positional arguments
+    if [[ $# -gt 0 ]]; then
+        CHALLENGE="$1"
+        shift
+    fi
+    if [[ $# -gt 0 ]]; then
+        DOMAIN="$1"
+        shift
+    fi
+    if [[ $# -gt 0 ]]; then
+        DEVICE_ID="$1"
+        shift
+    fi
+    if [[ $# -gt 0 ]]; then
+        TXTKN="$1"
+        shift
+    fi
+
+    # Parse any remaining flag arguments
+    while getopts "R:s:a:h" opt; do
+        case $opt in
+            R) REASON="$OPTARG" ;;
+            s) CONSENT_SIG="$OPTARG" ;;
+            a) AUTH0_CLIENT="$OPTARG" ;;
+            h) usage ;;
+            \?) echo "Invalid option -$OPTARG" >&2; usage ;;
+        esac
+    done
+else
+    # Legacy format: flag-based arguments
+    while getopts "c:d:i:k:t:R:s:a:h" opt; do
+        case $opt in
+            c) CHALLENGE="$OPTARG" ;;
+            d) DOMAIN="$OPTARG" ;;
+            i) DEVICE_ID="$OPTARG" ;;
+            k) KEY_PATH="$OPTARG" ;;
+            t) TXTKN="$OPTARG" ;;
+            R) REASON="$OPTARG" ;;
+            s) CONSENT_SIG="$OPTARG" ;;
+            a) AUTH0_CLIENT="$OPTARG" ;;
+            h) usage ;;
+            \?) echo "Invalid option -$OPTARG" >&2; usage ;;
+        esac
+    done
+fi
 
 # Use AUTH0_DOMAIN from .env if DOMAIN not provided via command line
 if [[ -z "$DOMAIN" ]] && [[ -n "$AUTH0_DOMAIN" ]]; then
     DOMAIN="$AUTH0_DOMAIN"
 fi
 
-# Use default private key if not provided
+# Use default private key if not provided (depends on algorithm)
 if [[ -z "$KEY_PATH" ]]; then
-    KEY_PATH="$DEFAULT_PRIVATE_KEY"
+    if [[ "$ALGORITHM" == "es256" ]]; then
+        KEY_PATH="$DEFAULT_EC_PRIVATE_KEY"
+    else
+        KEY_PATH="$DEFAULT_PRIVATE_KEY"
+    fi
 fi
 
 # Auto-detect device ID if not provided and only one device is enrolled
@@ -109,6 +174,12 @@ fi
 # Check if key file exists
 if [[ ! -f "$KEY_PATH" ]]; then
     echo "Error: Private key file not found: $KEY_PATH" >&2
+    exit 1
+fi
+
+# Validate algorithm
+if [[ "$ALGORITHM" != "rs256" ]] && [[ "$ALGORITHM" != "es256" ]]; then
+    echo "Error: Invalid algorithm '$ALGORITHM'. Must be 'rs256' or 'es256'" >&2
     exit 1
 fi
 
@@ -155,8 +226,12 @@ fi
 IAT=$(date +%s)
 EXP=$((IAT + 30))
 
-# Build JWT header
-JWT_HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64url_encode)
+# Build JWT header based on algorithm
+if [[ "$ALGORITHM" == "es256" ]]; then
+    JWT_HEADER=$(echo -n '{"alg":"ES256","typ":"JWT"}' | base64url_encode)
+else
+    JWT_HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64url_encode)
+fi
 
 # Build JWT payload
 if [[ "$ACCEPTED" == "true" ]]; then
@@ -193,8 +268,34 @@ fi
 # Create the signature base
 SIGNATURE_BASE="${JWT_HEADER}.${JWT_PAYLOAD}"
 
-# Sign with private key using RS256 (RSA with SHA-256)
-JWT_SIGNATURE=$(echo -n "$SIGNATURE_BASE" | openssl dgst -sha256 -sign "$KEY_PATH" | base64url_encode)
+# Sign with private key
+if [[ "$ALGORITHM" == "es256" ]]; then
+    # ES256 signing (ECDSA P-256)
+    # Step 1: Sign with openssl (produces DER-encoded ECDSA signature)
+    DER_SIG=$(echo -n "$SIGNATURE_BASE" | openssl dgst -sha256 -sign "$KEY_PATH" | openssl base64 -e -A)
+
+    # Step 2: Convert DER to raw r+s (64 bytes) using Node.js
+    # DER format: 30 <len> 02 <rlen> <r> 02 <slen> <s>
+    # Raw format: <r (32 bytes)> <s (32 bytes)>
+    RAW_SIG=$(node -e "
+      const sig = Buffer.from(process.argv[1], 'base64');
+      let offset = 2;
+      offset++;
+      const rlen = sig[offset++];
+      const r = sig.slice(offset + (rlen > 32 ? 1 : 0), offset + rlen);
+      offset += rlen;
+      offset++;
+      const slen = sig[offset++];
+      const s = sig.slice(offset + (slen > 32 ? 1 : 0), offset + slen);
+      const raw = Buffer.concat([r.slice(-32), s.slice(-32)]);
+      process.stdout.write(raw.toString('base64'));
+    " "$DER_SIG" | tr '+/' '-_' | tr -d '=')
+
+    JWT_SIGNATURE="$RAW_SIG"
+else
+    # RS256 signing (RSA with SHA-256)
+    JWT_SIGNATURE=$(echo -n "$SIGNATURE_BASE" | openssl dgst -sha256 -sign "$KEY_PATH" | base64url_encode)
+fi
 
 # Construct final JWT
 JWT="${SIGNATURE_BASE}.${JWT_SIGNATURE}"
@@ -214,12 +315,14 @@ EOF
 
 # Print request details (for debugging)
 echo "=== Guardian Transaction Resolution ===" >&2
+echo "Algorithm: $(echo "$ALGORITHM" | tr '[:lower:]' '[:upper:]')" >&2
 echo "Action: $([ "$ACCEPTED" == "true" ] && echo "ALLOW" || echo "REJECT")" >&2
 echo "URL: $FULL_URL" >&2
 echo "Device ID: $DEVICE_ID" >&2
 echo "Challenge: $CHALLENGE" >&2
 [[ -n "$REASON" ]] && echo "Reason: $REASON" >&2
 echo "Transaction Token: ${TXTKN:0:20}..." >&2
+echo "JWT Signature Length: ${#JWT_SIGNATURE} chars (base64url)" >&2
 echo "" >&2
 echo "Sending request..." >&2
 echo "" >&2

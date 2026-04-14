@@ -25,34 +25,17 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
     set +a
 fi
 
-# Parse key type from first argument (rsa/ec), default to rsa
-KEY_TYPE="${1:-rsa}"
-if [[ "$KEY_TYPE" != "rsa" ]] && [[ "$KEY_TYPE" != "ec" ]]; then
-    # First argument is not a key type, shift to treat as options
-    KEY_TYPE="rsa"
-else
-    # First argument is a key type, consume it
-    shift
-fi
-
-# Default key files based on key type
-if [[ "$KEY_TYPE" == "ec" ]]; then
-    DEFAULT_PUBLIC_KEY="${SCRIPT_DIR}/ec-private.pem"
-else
-    DEFAULT_PUBLIC_KEY="${SCRIPT_DIR}/public.pem"
-fi
+# Default key file
+DEFAULT_PUBLIC_KEY="${SCRIPT_DIR}/private.pem"
 
 # Usage function
 usage() {
     cat << EOF
-Usage: $0 [rsa|ec] -t TICKET -d DOMAIN -i DEVICE_ID -n NAME -g FCM_TOKEN -f PUBLIC_KEY_PEM [-a AUTH0_CLIENT]
+Usage: $0 -t TICKET -d DOMAIN -i DEVICE_ID -n NAME -g FCM_TOKEN [-f KEY_PEM] [-a AUTH0_CLIENT]
 
 DESCRIPTION:
   Enrolls a new device with Auth0 Guardian MFA service using an enrollment ticket.
-
-Key type argument:
-  rsa               Use RSA key for enrollment (default, backward compatible)
-  ec                Use EC P-256 key for enrollment
+  Key type (RSA or EC P-256) is auto-detected from the PEM file.
 
 Required arguments:
   -t TICKET         Enrollment ticket from Auth0 (enrollment_tx_id from QR code)
@@ -61,38 +44,37 @@ Required arguments:
   -i DEVICE_ID      Device identifier (unique ID for this device)
   -n NAME           Device name (human-readable name shown in Auth0 dashboard)
   -g FCM_TOKEN      Firebase Cloud Messaging token from Android/iOS app
-  -f PUBLIC_KEY_PEM Path to EC P-256 or RSA public key PEM file (default: ./public.pem for RSA, ./ec-public.pem for EC)
 
 Optional arguments:
+  -f KEY_PEM        Path to RSA or EC P-256 key PEM file (default: ./private.pem)
+                    Accepts private keys (RSA or EC) and RSA public keys.
+                    Key type auto-detected — no need to specify rsa/ec.
   -a AUTH0_CLIENT   Custom Auth0-Client header value (base64url-encoded JSON)
                     Default: {"name":"Guardian.Shell","version":"1.0.0"}
   -h                Show this help message
 
 EXAMPLES:
 
-  # RSA enrollment (default, backward compatible)
-  $0 rsa -t "enrollment_ticket_abc123" \\
+  # RSA enrollment (uses private.pem by default)
+  $0 -t "enrollment_ticket_abc123" \\
      -d "tenant.auth0.com" \\
      -i "device-001" \\
-     -n "My Test Device" \\
-     -g "fcm_token_xyz789" \\
-     -f public.pem
+     -n "My RSA Device" \\
+     -g "fcm_token_xyz789"
 
   # EC P-256 enrollment
-  $0 ec -t "enrollment_ticket_abc123" \\
+  $0 -t "enrollment_ticket_abc123" \\
      -d "tenant.auth0.com" \\
      -i "device-001" \\
      -n "My EC Device" \\
-     -g "fcm_token_xyz789"
+     -g "fcm_token_xyz789" \\
+     -f ec-private.pem
 
-  # Generate EC P-256 keypair
+  # Generate EC P-256 key
   openssl ecparam -genkey -name prime256v1 -noout -out ec-private.pem
 
-  # Generate RSA keypair (2048-bit recommended)
-  make keypair
-  # OR
+  # Generate RSA keypair (2048-bit)
   openssl genrsa -out private.pem 2048
-  openssl rsa -in private.pem -pubout -out public.pem
 
 ENROLLMENT DATA STORAGE:
   Enrollment data is saved to: .enrollments/{device_id}.json
@@ -139,18 +121,7 @@ if [[ ! -f "$PUBLIC_KEY_PEM" ]]; then
     exit 1
 fi
 
-# Verify it's a valid PEM file (RSA or EC)
-if [[ "$KEY_TYPE" == "ec" ]]; then
-    if ! openssl ec -in "$PUBLIC_KEY_PEM" -noout 2>/dev/null; then
-        echo "Error: Invalid EC P-256 private key PEM file: $PUBLIC_KEY_PEM" >&2
-        exit 1
-    fi
-else
-    if ! openssl rsa -pubin -in "$PUBLIC_KEY_PEM" -noout 2>/dev/null; then
-        echo "Error: Invalid RSA public key PEM file: $PUBLIC_KEY_PEM" >&2
-        exit 1
-    fi
-fi
+# Key type validation is handled by pem-to-jwk.js (supports RSA and EC)
 
 ##########################################################################################
 # Utility Functions
@@ -246,16 +217,12 @@ enroll_device() {
     echo "" >&2
 
     # Convert PEM to JWK based on key type
-    echo "Converting public key to JWK format (${KEY_TYPE} key)..." >&2
-    if [[ "$KEY_TYPE" == "ec" ]]; then
-        local public_key_jwk=$("${SCRIPT_DIR}/pem-to-ec-jwk.sh" "$PUBLIC_KEY_PEM")
-    else
-        local public_key_jwk=$("${SCRIPT_DIR}/pem-to-jwk.sh" "$PUBLIC_KEY_PEM")
-    fi
-    if [[ $? -ne 0 ]]; then
+    echo "Converting key to JWK format (auto-detecting key type)..." >&2
+    local public_key_jwk
+    public_key_jwk=$(node "${SCRIPT_DIR}/pem-to-jwk.js" "$PUBLIC_KEY_PEM") || {
         echo "Error: Failed to convert PEM to JWK" >&2
         exit 1
-    fi
+    }
 
     # Build push credentials object
     local push_credentials=$(jq -n \

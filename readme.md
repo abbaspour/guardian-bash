@@ -115,7 +115,7 @@ Body:
 Header:
 ```json
 {
-  "alg": "RS256",
+  "alg": "RS256|ES256",
   "typ": "JWT"
 }
 ```
@@ -329,22 +329,22 @@ Standalone utility to convert RSA PEM files (public or private keys) to JWK (JSO
 
 **Usage:**
 ```bash
-./pem-to-jwk.sh <pem-file>       # Convert from file
-./pem-to-jwk.sh -                # Read from stdin
-cat public.pem | ./pem-to-jwk.sh # Pipe from stdin
+./pem-to-jwk.js <pem-file>       # Convert from file
+./pem-to-jwk.js -                # Read from stdin
+cat public.pem | ./pem-to-jwk.js # Pipe from stdin
 ```
 
 **Examples:**
 ```bash
 # Convert public key to JWK
-./pem-to-jwk.sh public.pem
+./pem-to-jwk.js public.pem
 
 # Extract modulus (n) and exponent (e)
-./pem-to-jwk.sh public.pem | jq '.n'
-./pem-to-jwk.sh public.pem | jq -r '.n, .e'
+./pem-to-jwk.js public.pem | jq '.n'
+./pem-to-jwk.js public.pem | jq -r '.n, .e'
 
 # Use in pipeline
-cat public.pem | ./pem-to-jwk.sh | jq '.'
+cat public.pem | ./pem-to-jwk.js | jq '.'
 ```
 
 **Output:**

@@ -31,38 +31,48 @@ ENROLLMENTS_DIR="${SCRIPT_DIR}/.enrollments"
 # Usage function
 usage() {
     cat << EOF
-Usage: $0 -c CHALLENGE -d DOMAIN -i DEVICE_ID -k KEY_PATH -t TXTKN [-R REASON] [-a AUTH0_CLIENT]
+Usage: $0 -c CHALLENGE -d DOMAIN -i DEVICE_ID -t TXTKN [-k KEY_PATH] [-R REASON] [-s SIG] [-a CLIENT]
 
-Required arguments:
+Arguments:
   -c CHALLENGE      Challenge value from push notification (sets JWT 'sub' claim)
   -d DOMAIN         Base domain/URL (e.g., 'tenant.auth0.com' or 'tenant.guardian.auth0.com')
                     Can be set in .env as AUTH0_DOMAIN
   -i DEVICE_ID      Device identifier (sets JWT 'iss' claim)
                     Auto-detected if only one device enrolled in .enrollments/
-  -k KEY_PATH       Path to RSA private key PEM file (default: ./private.pem)
   -t TXTKN          Transaction token from push notification
+  -k KEY_PATH       Path to private key PEM file (default: ./private.pem)
+                    Algorithm (RS256/ES256) is auto-detected from the key type.
 
 Optional arguments:
-  -R REASON         Reject reason. If provided, rejects the transaction (auth0_guardian_accepted=false)
-                    If omitted, allows the transaction (auth0_guardian_accepted=true)
-  -s SIGNATURE      Optional consent signature (auth0_consent_signature JWT claim)
-  -a AUTH0_CLIENT   Custom Auth0-Client header value (base64-encoded JSON)
+  -R REASON         Reject reason (auth0_guardian_accepted=false). Omit to allow.
+  -s SIGNATURE      Consent signature (auth0_consent_signature JWT claim)
+  -a AUTH0_CLIENT   Custom Auth0-Client header (base64-encoded JSON)
                     Default: {"name":"Guardian.Shell","version":"1.0.0"}
   -h                Show this help message
 
 Examples:
-  # Allow a transaction
-  $0 -c "challenge_abc" -d "tenant.auth0.com" -i "device_123" -k ./private.pem -t "txtkn_xyz"
+  # Allow a transaction (RSA key auto-detected → RS256)
+  $0 -c "challenge_abc" -d "tenant.auth0.com" -i "device_123" -t "txtkn_xyz"
 
-  # Reject a transaction with reason
-  $0 -c "challenge_abc" -d "tenant.auth0.com" -i "device_123" -k ./private.pem -t "txtkn_xyz" -R "Suspicious login"
+  # Allow with EC key (auto-detected → ES256)
+  $0 -c "challenge_abc" -d "tenant.auth0.com" -i "device_123" -t "txtkn_xyz" -k ec-private.pem
 
-  # Using a Guardian hosted domain (no /appliance-mfa prefix needed)
-  $0 -c "challenge_abc" -d "tenant.guardian.auth0.com" -i "device_123" -k ./private.pem -t "txtkn_xyz"
+  # Reject with reason
+  $0 -c "challenge_abc" -d "tenant.auth0.com" -i "device_123" -t "txtkn_xyz" -R "Suspicious login"
 
 EOF
     exit 1
 }
+
+# Initialize variables
+CHALLENGE=""
+DOMAIN=""
+DEVICE_ID=""
+TXTKN=""
+REASON=""
+CONSENT_SIG=""
+AUTH0_CLIENT=""
+KEY_PATH=""
 
 # Parse command line arguments
 while getopts "c:d:i:k:t:R:s:a:h" opt; do
@@ -112,6 +122,14 @@ if [[ ! -f "$KEY_PATH" ]]; then
     exit 1
 fi
 
+# Auto-detect algorithm from key type (Node.js handles all PEM formats reliably)
+ALGORITHM=$(node -e "
+const {createPrivateKey,createPublicKey}=require('crypto');
+const pem=require('fs').readFileSync(process.argv[1],'utf8');
+const pub=pem.includes('PRIVATE')?createPublicKey(createPrivateKey(pem)):createPublicKey(pem);
+process.stdout.write(pub.export({format:'jwk'}).kty==='EC'?'es256':'rs256');
+" "$KEY_PATH" 2>/dev/null) || { echo "Error: Cannot detect key type from $KEY_PATH" >&2; exit 1; }
+
 # Function to perform base64url encoding (URL-safe, no padding)
 base64url_encode() {
     openssl base64 -e -A | tr '+/' '-_' | tr -d '='
@@ -155,8 +173,9 @@ fi
 IAT=$(date +%s)
 EXP=$((IAT + 30))
 
-# Build JWT header
-JWT_HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64url_encode)
+# Build JWT header (algorithm auto-detected from key type above)
+ALG_UPPER=$(echo "$ALGORITHM" | tr '[:lower:]' '[:upper:]')
+JWT_HEADER=$(echo -n "{\"alg\":\"${ALG_UPPER}\",\"typ\":\"JWT\"}" | base64url_encode)
 
 # Build JWT payload
 if [[ "$ACCEPTED" == "true" ]]; then
@@ -193,8 +212,34 @@ fi
 # Create the signature base
 SIGNATURE_BASE="${JWT_HEADER}.${JWT_PAYLOAD}"
 
-# Sign with private key using RS256 (RSA with SHA-256)
-JWT_SIGNATURE=$(echo -n "$SIGNATURE_BASE" | openssl dgst -sha256 -sign "$KEY_PATH" | base64url_encode)
+# Sign with private key
+if [[ "$ALGORITHM" == "es256" ]]; then
+    # ES256 signing (ECDSA P-256)
+    # Step 1: Sign with openssl (produces DER-encoded ECDSA signature)
+    DER_SIG=$(echo -n "$SIGNATURE_BASE" | openssl dgst -sha256 -sign "$KEY_PATH" | openssl base64 -e -A)
+
+    # Step 2: Convert DER to raw r+s (64 bytes) using Node.js
+    # DER format: 30 <len> 02 <rlen> <r> 02 <slen> <s>
+    # Raw format: <r (32 bytes)> <s (32 bytes)>
+    RAW_SIG=$(node -e "
+      const sig = Buffer.from(process.argv[1], 'base64');
+      let offset = 2;
+      offset++;
+      const rlen = sig[offset++];
+      const r = sig.slice(offset + (rlen > 32 ? 1 : 0), offset + rlen);
+      offset += rlen;
+      offset++;
+      const slen = sig[offset++];
+      const s = sig.slice(offset + (slen > 32 ? 1 : 0), offset + slen);
+      const raw = Buffer.concat([r.slice(-32), s.slice(-32)]);
+      process.stdout.write(raw.toString('base64'));
+    " "$DER_SIG" | tr '+/' '-_' | tr -d '=')
+
+    JWT_SIGNATURE="$RAW_SIG"
+else
+    # RS256 signing (RSA with SHA-256)
+    JWT_SIGNATURE=$(echo -n "$SIGNATURE_BASE" | openssl dgst -sha256 -sign "$KEY_PATH" | base64url_encode)
+fi
 
 # Construct final JWT
 JWT="${SIGNATURE_BASE}.${JWT_SIGNATURE}"
@@ -214,12 +259,14 @@ EOF
 
 # Print request details (for debugging)
 echo "=== Guardian Transaction Resolution ===" >&2
+echo "Algorithm: $(echo "$ALGORITHM" | tr '[:lower:]' '[:upper:]')" >&2
 echo "Action: $([ "$ACCEPTED" == "true" ] && echo "ALLOW" || echo "REJECT")" >&2
 echo "URL: $FULL_URL" >&2
 echo "Device ID: $DEVICE_ID" >&2
 echo "Challenge: $CHALLENGE" >&2
 [[ -n "$REASON" ]] && echo "Reason: $REASON" >&2
 echo "Transaction Token: ${TXTKN:0:20}..." >&2
+echo "JWT Signature Length: ${#JWT_SIGNATURE} chars (base64url)" >&2
 echo "" >&2
 echo "Sending request..." >&2
 echo "" >&2

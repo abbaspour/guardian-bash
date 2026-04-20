@@ -36,6 +36,8 @@ Content-Type: application/json
 ```
 
 Body:
+`public_key` can be either RSA (RS256) or EC (ES256).
+
 ```json
 {
   "identifier": "device-001",
@@ -50,7 +52,15 @@ Body:
     "use": "sig",
     "e": "AQAB",
     "n": "xGOr-H7A-qFxQ7..."
-  }
+  },
+  "public_key":{
+    "kty": "EC",
+    "x": "EXjF9XNdUgbU7ywbv7WyxhzDN0nePTM7_AzSYZ7KE4k",
+    "y": "yLc6c2_KVsToNoQtmdcKM5hs4ViwwvIXLWFtGZWMOlI",
+    "crv": "P-256",
+    "alg": "ES256",
+    "use": "sig"
+  }  
 }
 ```
 

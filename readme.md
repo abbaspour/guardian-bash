@@ -432,3 +432,6 @@ There is a minimal Android app in `android/` folder that receives push notificat
 
 # Demo Video
 [![Demo](./img/demo.png)](https://zoom.us/clips/share/-pcOp_IQTyCwCLCw9kaDoA)
+
+# Related Content
+* https://github.com/zamd/auth0-android-authenticator 

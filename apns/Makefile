@@ -15,3 +15,6 @@ verify:
 
 run:
 	./PushListenerApp.app/Contents/MacOS/PushListener
+
+log:
+	log stream --predicate 'processImagePath contains "PushListener"'

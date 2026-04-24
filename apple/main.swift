@@ -21,6 +21,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
+    // Re-register on every activation — APNs can issue a new token after first delivery
+    // in the development sandbox. If a new token is printed, re-enroll with enroll-device.sh.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        NSApp.registerForRemoteNotifications()
+    }
+
     func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         print("\n--- DEVICE TOKEN ---")
@@ -63,7 +69,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     private func printPayload(_ userInfo: [AnyHashable: Any]) {
-        print("--- payload ---")
+        let ts = ISO8601DateFormatter().string(from: Date())
+        print("--- payload [\(ts)] ---")
         for (key, value) in userInfo {
             print("  \(key): \(value)")
         }

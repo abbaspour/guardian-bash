@@ -1,15 +1,11 @@
 # Guardian Push Notification Apple App
 
+## 1. Apple Developer Portal
 To get your app Mac Application listening for notifications, you need to configure three things in the Apple Developer Portal https://developer.apple.com/account:
-1. the App ID,
-2. the Auth Key, and
-3. your Team ID.
 
 ![Apple Developer Portal](./img/apns-01-landing.png)
 
-Here is the step-by-step checklist to get those assets.
-
-## 1. Register the App ID (The "Identity")
+## 2. Register the App ID (The "Identity")
 APNs needs to know which specific app is allowed to receive notifications.
 
 1. Go to Certificates, Identifiers & Profiles > Identifiers.
@@ -54,7 +50,7 @@ Unlike certificates that expire every year, an Auth Key (.p8 file) never expires
 
 ![P12](./img/apns-05-p12.png)
 
-## 6. Convert Certificate to Legacy Format
+## 6. Convert Certificate to 3DES Format
 ```shell
 openssl pkcs12 -in Certificates.p12 -legacy -nocerts -nodes -out pk.pem -passin pass:"" 
 openssl pkcs12 -in Certificates.p12 -legacy -nokeys -out cert.crt -passin pass:"" 

@@ -43,7 +43,8 @@ Required arguments:
                     Can be set in .env as AUTH0_DOMAIN
   -i DEVICE_ID      Device identifier (unique ID for this device)
   -n NAME           Device name (human-readable name shown in Auth0 dashboard)
-  -g FCM_TOKEN      Firebase Cloud Messaging token from Android/iOS app
+  -g PUSH_TOKEN     Push notification device token (FCM token for Android, APNS hex token for macOS/iOS)
+  -s SERVICE        Push notification service: GCM (default) or APNS
 
 Optional arguments:
   -f KEY_PEM        Path to RSA or EC P-256 key PEM file (default: ./private.pem)
@@ -70,6 +71,14 @@ EXAMPLES:
      -g "fcm_token_xyz789" \\
      -f ec-private.pem
 
+  # APNS enrollment (macOS/iOS device token)
+  $0 -t "enrollment_ticket_abc123" \\
+     -d "tenant.auth0.com" \\
+     -i "device-001" \\
+     -n "My Mac" \\
+     -g "a1b2c3d4e5f6..." \\
+     -s APNS
+
   # Generate EC P-256 key
   openssl ecparam -genkey -name prime256v1 -noout -out ec-private.pem
 
@@ -85,13 +94,16 @@ EOF
 }
 
 # Parse command line arguments
-while getopts "t:d:i:n:g:f:a:h" opt; do
+SERVICE="GCM"
+
+while getopts "t:d:i:n:g:s:f:a:h" opt; do
     case $opt in
         t) TICKET="$OPTARG" ;;
         d) DOMAIN="$OPTARG" ;;
         i) DEVICE_ID="$OPTARG" ;;
         n) DEVICE_NAME="$OPTARG" ;;
         g) FCM_TOKEN="$OPTARG" ;;
+        s) SERVICE="$OPTARG" ;;
         f) PUBLIC_KEY_PEM="$OPTARG" ;;
         a) AUTH0_CLIENT="$OPTARG" ;;
         h) usage ;;
@@ -226,7 +238,7 @@ enroll_device() {
 
     # Build push credentials object
     local push_credentials=$(jq -n \
-        --arg service "GCM" \
+        --arg service "$SERVICE" \
         --arg token "$FCM_TOKEN" \
         '{service: $service, token: $token}')
 

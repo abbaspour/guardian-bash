@@ -5,4 +5,5 @@ terraform.auto.tfvars
 .env
 *.json
 *.pem
+*.p12
 .planning/
